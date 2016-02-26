@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8" />
-<title>Uncertainty Scores and Prediction Errors1</title>
+<title>Uncertainty Scores and Prediction Errors</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
@@ -200,7 +200,20 @@ div#notebook {
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<h1 id="Vowpal-wabbit-command-and-Brief-Description-of-data">Vowpal wabbit command and Brief Description of data<a class="anchor-link" href="#Vowpal-wabbit-command-and-Brief-Description-of-data">&#182;</a></h1><h3 id="vw-command:-vw--d-data.gz---loss_function-logistic---ftrl---ftrl_alpha-0.073---ftrl_beta-0.1---ignore-v--q-du---lrq-ap10--p-pred_with_ce_original.out---ftrl_confidence">vw command: vw -d data.gz --loss_function logistic --ftrl --ftrl_alpha 0.073 --ftrl_beta 0.1 --ignore v -q du --lrq ap10 -p pred_with_ce_original.out --ftrl_confidence<a class="anchor-link" href="#vw-command:-vw--d-data.gz---loss_function-logistic---ftrl---ftrl_alpha-0.073---ftrl_beta-0.1---ignore-v--q-du---lrq-ap10--p-pred_with_ce_original.out---ftrl_confidence">&#182;</a></h3><h3 id="Data-of-over-3-million-samples-from-Nativo's-online-ad-serving-events">Data of over 3 million samples from Nativo's online ad-serving events<a class="anchor-link" href="#Data-of-over-3-million-samples-from-Nativo's-online-ad-serving-events">&#182;</a></h3>
+<h1 id="Vowpal-wabbit-commands-and-Brief-Description-of-data">Vowpal wabbit commands and Brief Description of data<a class="anchor-link" href="#Vowpal-wabbit-commands-and-Brief-Description-of-data">&#182;</a></h1><h3 id="It-generates-uncertainty-scores-for-ftrl-regression-model-with---ftrl_confidence-argument-in-command-args.">It generates uncertainty scores for ftrl regression model with --ftrl_confidence argument in command args.<a class="anchor-link" href="#It-generates-uncertainty-scores-for-ftrl-regression-model-with---ftrl_confidence-argument-in-command-args.">&#182;</a></h3><h3 id="The-outputs-look-like-below:">The outputs look like below:<a class="anchor-link" href="#The-outputs-look-like-below:">&#182;</a></h3>
+<pre><code>prediction uncertainty score
+-0.917181 1.581583
+-1.040545 1.582132
+-1.098954 1.591752
+-1.280777 1.592833
+-1.290698 1.625208
+-1.404583 1.701759
+-1.545548 1.482271
+...       ....
+
+
+</code></pre>
+<h3 id="The-score-is-calculated-based-on-the-following-research-paper,-section-(6):-https://www.eecs.tufts.edu/~dsculley/papers/ad-click-prediction.pdf">The score is calculated based on the following research paper, section (6): <a href="https://www.eecs.tufts.edu/~dsculley/papers/ad-click-prediction.pdf">https://www.eecs.tufts.edu/~dsculley/papers/ad-click-prediction.pdf</a><a class="anchor-link" href="#The-score-is-calculated-based-on-the-following-research-paper,-section-(6):-https://www.eecs.tufts.edu/~dsculley/papers/ad-click-prediction.pdf">&#182;</a></h3><h3 id="vw-command:-vw--d-data.gz---loss_function-logistic---ftrl---ftrl_alpha-0.073---ftrl_beta-0.1---ignore-v--q-du---lrq-ap10--p-pred_with_ce_original.out---ftrl_confidence">vw command: vw -d data.gz --loss_function logistic --ftrl --ftrl_alpha 0.073 --ftrl_beta 0.1 --ignore v -q du --lrq ap10 -p pred_with_ce_original.out --ftrl_confidence<a class="anchor-link" href="#vw-command:-vw--d-data.gz---loss_function-logistic---ftrl---ftrl_alpha-0.073---ftrl_beta-0.1---ignore-v--q-du---lrq-ap10--p-pred_with_ce_original.out---ftrl_confidence">&#182;</a></h3><h3 id="Data-of-over-3-million-samples-from-Nativo's-online-ad-serving-events">Data of over 3 million samples from Nativo's online ad-serving events<a class="anchor-link" href="#Data-of-over-3-million-samples-from-Nativo's-online-ad-serving-events">&#182;</a></h3>
 </div>
 </div>
 </div>
