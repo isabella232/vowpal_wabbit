@@ -52,7 +52,6 @@ reset_seed (LRQstate& lrq)
 template <bool is_learn>
 void predict_or_learn(LRQstate& lrq, base_learner& base, example& ec)
 { vw& all = *lrq.all;
-
   // Remember original features
 
   memset (lrq.orig_size, 0, sizeof (lrq.orig_size));
@@ -64,6 +63,7 @@ void predict_or_learn(LRQstate& lrq, base_learner& base, example& ec)
   size_t which = ec.example_counter;
   float first_prediction = 0;
   float first_loss = 0;
+  float first_uncertainty = 0;
   unsigned int maxiter = (is_learn && ! example_is_test (ec)) ? 2 : 1;
 
   bool do_dropout = lrq.dropout && is_learn && ! example_is_test (ec);
@@ -128,19 +128,23 @@ void predict_or_learn(LRQstate& lrq, base_learner& base, example& ec)
         }
     }
 
-    if (is_learn)
+    if (is_learn){
       base.learn(ec);
-    else
+    }
+    else{
       base.predict(ec);
+    }
 
     // Restore example
     if (iter == 0)
       { first_prediction = ec.pred.scalar;
         first_loss = ec.loss;
+        first_uncertainty = ec.confidence;
       }
     else
       { ec.pred.scalar = first_prediction;
         ec.loss = first_loss;
+        ec.confidence = first_uncertainty;
       }
 
     for (string const& i : lrq.lrpairs)

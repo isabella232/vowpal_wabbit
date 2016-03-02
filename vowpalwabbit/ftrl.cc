@@ -49,7 +49,6 @@ inline float sign(float w) { if (w < 0.) return -1.; else  return 1.;}
 inline void pred_confidence(etas& d, const float fx, float& fw)
 { float* w = &fw;
   d.pred += w[W_XT] * fx;
-  //cout << "d.pred: " << d.pred << endl;
   float sqrtf_ng2 = sqrtf(w[W_G2]);
   float eta = ( (d.b.data.ftrl_beta+sqrtf_ng2)/d.b.data.ftrl_alpha +d.b.data.l2_lambda);
   if(fx < 0)
@@ -84,23 +83,17 @@ void output_example(vw& all, example& ec)
   all.sd->weighted_unlabeled_examples += ld.label == FLT_MAX ? ec.weight : 0;
 
   for (int sink : all.final_prediction_sink)
-	  print_result(sink, ec.partial_prediction, ec.confidence);
-  cout << "kkkl "<< endl;
+	  print_result(sink, ec.pred.scalar, ec.confidence);
   print_update(all, ec);
 }
 
 void finish_example(vw& all, ftrl& b, example& ec)
-{
-  cout << "9999" << endl;
-  output_example(all, ec);
+{ output_example(all, ec);
   VW::finish_example(all, &ec);
 }
 
 void predict(ftrl& b, base_learner&, example& ec)
-{ cout << "origina predict1" << endl;
-  ec.partial_prediction = GD::inline_predict(*b.all, ec);
-  cout << "origina predict2" << endl;
-  cout << "ec.partial_prediction: " << ec.partial_prediction << endl;
+{ ec.partial_prediction = GD::inline_predict(*b.all, ec);
   ec.pred.scalar = GD::finalize_prediction(b.all->sd, ec.partial_prediction);
 }
 
@@ -109,7 +102,6 @@ void predict_with_confidence(ftrl& b, base_learner&, example& ec)
   GD::foreach_feature<etas, pred_confidence>(*(b.all), ec, eta);
   ec.confidence = eta.ub;
   ec.partial_prediction = eta.pred;
-  cout << "ec.partial_prediction!!: "<< ec.partial_prediction << endl;
   ec.pred.scalar = GD::finalize_prediction(b.all->sd, ec.partial_prediction);
 }
 
@@ -181,9 +173,7 @@ void update_state_and_predict_pistol(ftrl& b, base_learner&, example& ec)
 void update_after_prediction_proximal(ftrl& b, example& ec)
 { b.data.update = b.all->loss->first_derivative(b.all->sd, ec.pred.scalar, ec.l.simple.label)
                   *ec.weight;
-  cout << "11111" << endl;
   GD::foreach_feature<update_data, inner_update_proximal>(*b.all, ec, b.data);
-  cout << "22222" << endl;
 }
 
 void update_after_prediction_pistol(ftrl& b, example& ec)
@@ -195,18 +185,15 @@ void update_after_prediction_pistol(ftrl& b, example& ec)
 
 void learn_proximal_with_confidence(ftrl& a, base_learner& base, example& ec)
 { assert(ec.in_use);
-  cout << "67676767" << endl;
   // predict with confidence
   predict_with_confidence(a, base, ec);
-  cout << "-----" << endl;
+
   //update state based on the prediction
   update_after_prediction_proximal(a,ec);
-  cout << "333333" << endl;
 }
 
 void learn_proximal(ftrl& a, base_learner& base, example& ec)
 { assert(ec.in_use);
-
   // predict with confidence
   predict(a, base, ec);
 
