@@ -25,6 +25,8 @@
 //-----------------------------------------------------------------------------
 
 #include "hash.h"
+#include <iostream>
+
 
 namespace MURMUR_HASH_3
 {
@@ -44,7 +46,6 @@ static inline uint32_t getblock(const uint32_t * p, int i)
 uint64_t uniform_hash(const void * key, size_t len, uint64_t seed)
 { const uint8_t * data = (const uint8_t*)key;
   const int nblocks = (int)len / 4;
-
   uint32_t h1 = (uint32_t)seed;
 
   const uint32_t c1 = 0xcc9e2d51;

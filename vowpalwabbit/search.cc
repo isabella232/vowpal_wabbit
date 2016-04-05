@@ -1110,7 +1110,7 @@ bool cached_action_store_or_find(search_private& priv, ptag mytag, const ptag* c
   uint64_t hash = uniform_hash(item, sz, 3419);
 
   if (do_store)
-  { priv.cache_hash_map.put(item, hash, scored_action(a, a_cost));
+  {	priv.cache_hash_map.put(item, hash, scored_action(a, a_cost));
     return true;
   }
   else     // its a find

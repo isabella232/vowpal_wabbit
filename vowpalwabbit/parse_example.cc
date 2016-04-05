@@ -91,9 +91,9 @@ public:
         substring feature_name=read_name();
         v = cur_channel_v * featureValue();
         uint64_t word_hash;
-        if (feature_name.end != feature_name.begin)
+        if (feature_name.end != feature_name.begin){
           word_hash = (p->hasher(feature_name, channel_hash));
-        else
+        }else
           word_hash = channel_hash + anon++;
         if(v == 0) return; //dont add 0 valued features to list of features
         features& fs = ae->feature_space[index];
@@ -138,8 +138,9 @@ public:
   if (spelling_features[index])
     {
       features& spell_fs = ae->feature_space[spelling_namespace];
-      if (spell_fs.size() == 0)
+      if (spell_fs.size() == 0){
         ae->indices.push_back(spelling_namespace);
+      }
       //v_array<char> spelling;
       spelling.erase();
       for (char*c = feature_name.begin; c!=feature_name.end; ++c)
@@ -170,8 +171,9 @@ public:
           features* feats = map->get(feature_name, hash);
           if ((feats != nullptr) && (feats->values.size() > 0))
             { features& dict_fs = ae->feature_space[dictionary_namespace];
-              if (dict_fs.size() == 0)
+              if (dict_fs.size() == 0){
                 ae->indices.push_back(dictionary_namespace);
+              }
               push_many(dict_fs.values, feats->values.begin(), feats->values.size());
               push_many(dict_fs.indicies, feats->indicies.begin(), feats->indicies.size());
               dict_fs.sum_feat_sq += feats->sum_feat_sq;
@@ -345,9 +347,9 @@ void substring_to_example(vw* all, example* ae, substring example)
   if (all->p->words.size() > 0)
     all->p->lp.parse_label(all->p, all->sd, &ae->l, all->p->words);
 
-  if (all->audit || all->hash_inv)
+  if (all->audit || all->hash_inv){
     TC_parser<true> parser_line(bar_location,example.end,*all,ae);
-  else
+  }else
     TC_parser<false> parser_line(bar_location,example.end,*all,ae);
 }
 

@@ -59,9 +59,126 @@ float sensitivity(ftrl& b, base_learner& base, example& ec)
 	return uncetain.score;
 }
 
+struct string_value
+{ float v;
+  string s;
+  friend bool operator<(const string_value& first, const string_value& second);
+};
+
+bool operator<(const string_value& first, const string_value& second)
+{ return fabsf(first.v) > fabsf(second.v);
+}
+
+struct audit_results
+{ vw& all;
+  const uint64_t offset;
+  vector<string> ns_pre;
+  vector<string_value> results;
+  audit_results(vw& p_all, const size_t p_offset):all(p_all), offset(p_offset) {}
+};
+
+inline void audit_interaction(audit_results& dat, const audit_strings* f)
+{ if (f == nullptr)
+  { dat.ns_pre.pop_back();
+    return;
+  }
+
+  string ns_pre;
+  if (!dat.ns_pre.empty())
+    ns_pre += '*';
+
+  if (f->first != "" && ((f->first) != " "))
+    {
+      ns_pre.append(f->first);
+      ns_pre += '^';
+    }
+  if (f->second != "")
+    {
+      ns_pre.append(f->second);
+      dat.ns_pre.push_back(ns_pre);
+    }
+}
+
+inline float trunc_weight(const float w, const float gravity)
+{ return (gravity < fabsf(w)) ? w - sign(w) * gravity : 0.f;
+}
+
+inline void audit_feature(audit_results& dat, const float ft_weight, const uint64_t ft_idx)
+{ uint64_t index = ft_idx & dat.all.reg.weight_mask;
+  weight* weights = dat.all.reg.weight_vector;
+  size_t stride_shift = dat.all.reg.stride_shift;
+
+  string ns_pre;
+  for (string& s : dat.ns_pre) ns_pre += s;
+
+  if(dat.all.audit)
+  { ostringstream tempstream;
+    tempstream << ':' << (index >> stride_shift) << ':' << ft_weight
+               << ':' << trunc_weight(weights[index], (float)dat.all.sd->gravity) * (float)dat.all.sd->contraction;
+
+    if(dat.all.adaptive)
+      tempstream << '@' << weights[index+1];
+
+
+    string_value sv = {weights[index]*ft_weight, ns_pre+tempstream.str()};
+    dat.results.push_back(sv);
+  }
+
+  if(dat.all.current_pass == 0 && dat.all.hash_inv)
+  { //for invert_hash
+
+    if (dat.offset != 0)
+    { // otherwise --oaa output no features for class > 0.
+      ostringstream tempstream;
+      tempstream << '[' << (dat.offset >> stride_shift) << ']';
+      ns_pre += tempstream.str();
+    }
+
+    if(!dat.all.name_index_map.count(ns_pre))
+      dat.all.name_index_map.insert(std::map< std::string, size_t>::value_type(ns_pre, index >> stride_shift));
+  }
+
+}
+
+void print_features(vw& all, example& ec)
+{
+    audit_results dat(all,ec.ft_offset);
+
+    for (features& fs : ec)
+        { if (fs.space_names.size() > 0)
+            for (features::iterator_all& f : fs.values_indices_audit())
+    	      {
+                audit_interaction(dat, f.audit().get());
+    	        audit_feature(dat, f.value(), f.index() + ec.ft_offset);
+    	        audit_interaction(dat, NULL);
+    	      }
+    	    else
+            for (features::iterator& f : fs)
+              audit_feature(dat, f.value(), f.index() + ec.ft_offset);
+        }
+
+    INTERACTIONS::generate_interactions<audit_results, const uint64_t, audit_feature, true, audit_interaction >(all, ec, dat);
+
+    //sort(dat.results.begin(),dat.results.end());
+
+    //for (string_value& sv : dat.results)
+    //    cout << '\t' << sv.s;
+    //  cout << endl;
+
+}
+
+void print_audit_features(vw& all, example& ec)
+{
+  fflush(stdout);
+  print_features(all, ec);
+}
+
 void predict(ftrl& b, base_learner&, example& ec)
-{ ec.partial_prediction = GD::inline_predict(*b.all, ec);
+{
+  vw& all = *b.all;
+  ec.partial_prediction = GD::inline_predict(*b.all, ec);
   ec.pred.scalar = GD::finalize_prediction(b.all->sd, ec.partial_prediction);
+  print_audit_features(all, ec);
 }
 
 void multipredict(ftrl& b, base_learner&, example& ec, size_t count, size_t step, polyprediction* pred, bool finalize_predictions)
@@ -164,20 +281,22 @@ void learn_pistol(ftrl& a, base_learner& base, example& ec)
 }
 
 void save_load(ftrl& b, io_buf& model_file, bool read, bool text)
-{ vw* all = b.all;
+{
+  vw* all = b.all;
   if (read)
     initialize_regressor(*all);
-
   if (model_file.files.size() > 0)
   { bool resume = all->save_resume;
     stringstream msg;
     msg << ":"<< resume<< "\n";
     bin_text_read_write_fixed(model_file,(char *)&resume, sizeof (resume), "", read, msg, text);
 
-    if (resume)
+    if (resume){
       GD::save_load_online_state(*all, model_file, read, text);
-    else
+    }
+    else{
       GD::save_load_regressor(*all, model_file, read, text);
+    }
   }
 }
 

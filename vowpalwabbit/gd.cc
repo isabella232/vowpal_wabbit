@@ -195,25 +195,30 @@ inline void audit_interaction(audit_results& dat, const audit_strings* f)
   if (f->first != "" && ((f->first) != " "))
     {
       ns_pre.append(f->first);
+      //cout << "f->first " << f->first << endl;
       ns_pre += '^';
     }
   if (f->second != "")
     {
+	  //cout << "f->second " << f->second << endl;
       ns_pre.append(f->second);
       dat.ns_pre.push_back(ns_pre);
     }
 }
 
 inline void audit_feature(audit_results& dat, const float ft_weight, const uint64_t ft_idx)
-{ uint64_t index = ft_idx & dat.all.reg.weight_mask;
+{ uint64_t index = ft_idx & dat.all.reg.weight_mask; // this guy + >>dat.all.reg.stride_shift  is a feature hash
+  cout << "index " << index << endl;
   weight* weights = dat.all.reg.weight_vector;
   size_t stride_shift = dat.all.reg.stride_shift;
 
   string ns_pre;
   for (string& s : dat.ns_pre) ns_pre += s;
 
-  if(dat.all.audit)
+  //if(dat.all.audit)
+  if(1)
   { ostringstream tempstream;
+
     tempstream << ':' << (index >> stride_shift) << ':' << ft_weight
                << ':' << trunc_weight(weights[index], (float)dat.all.sd->gravity) * (float)dat.all.sd->contraction;
 
@@ -221,6 +226,10 @@ inline void audit_feature(audit_results& dat, const float ft_weight, const uint6
       tempstream << '@' << weights[index+1];
 
 
+    cout << "ns_pre " << ns_pre << endl;
+    cout << "(index >> stride_shift)  " << (index >> stride_shift)  << endl; // THIS IS IT! feature hash
+    cout << "tempstream.str() " << tempstream.str() << endl;
+    cout << "mememe" << ns_pre+tempstream.str() << endl;
     string_value sv = {weights[index]*ft_weight, ns_pre+tempstream.str()};
     dat.results.push_back(sv);
   }
@@ -250,7 +259,7 @@ void print_features(vw& all, example& ec)
       count += fs.size();
     for (features& fs : ec)
     { for (features::iterator_all& f : fs.values_indices_audit())
-      { cout << '\t' << f.audit().get()->first << '^' << f.audit().get()->second << ':' << ((f.index() >> all.reg.stride_shift) & all.parse_mask) << ':' << f.value();
+      {
         for (size_t k = 0; k < all.lda; k++)
           cout << ':' << weights[(f.index()+k) & all.reg.weight_mask];
       }
@@ -266,8 +275,10 @@ void print_features(vw& all, example& ec)
     { if (fs.space_names.size() > 0)
         for (features::iterator_all& f : fs.values_indices_audit())
 	      {
-          audit_interaction(dat, f.audit().get());
-	        audit_feature(dat, f.value(), f.index() + ec.ft_offset);
+        	//cout << "f.audit().get() " << f.audit().get() << endl;
+            audit_interaction(dat, f.audit().get());
+            cout << " f.value() " <<  f.value() << endl;
+            audit_feature(dat, f.value(), f.index() + ec.ft_offset);
 	        audit_interaction(dat, NULL);
 	      }
 	    else
@@ -278,7 +289,7 @@ void print_features(vw& all, example& ec)
     INTERACTIONS::generate_interactions<audit_results, const uint64_t, audit_feature, true, audit_interaction >(all, ec, dat);
 
     sort(dat.results.begin(),dat.results.end());
-    if(all.audit)
+    if(all.audit) //print the output to the console //print the output to the console //print the output to the console //print the output to the console //print the output to the console
     { for (string_value& sv : dat.results)
         cout << '\t' << sv.s;
       cout << endl;
@@ -288,10 +299,10 @@ void print_features(vw& all, example& ec)
 }
 
 void print_audit_features(vw& all, example& ec)
-{ if(all.audit)
-    print_result(all.stdout_fileno,ec.pred.scalar,-1,ec.tag);
+{ //if(all.audit)
+  //  print_result(all.stdout_fileno,ec.pred.scalar,-1,ec.tag);
   fflush(stdout);
-  print_features(all, ec);
+  print_features(all, ec); // write the data to the file after vw shut down plus it prints the audit result in console
 }
 
 float finalize_prediction(shared_data* sd, float ret)
@@ -574,7 +585,9 @@ void save_load_regressor(vw& all, io_buf& model_file, bool read, bool text)
   size_t brw = 1;
 
   if(all.print_invert)   //write readable model with feature names
-  { weight* v;
+  {
+	cout << "this not being called? " << endl;
+	weight* v;
     stringstream msg;
     typedef std::map< std::string, size_t> str_int_map;
 
@@ -583,9 +596,10 @@ void save_load_regressor(vw& all, io_buf& model_file, bool read, bool text)
       if(*v != 0.)
       {
         msg << it->first;
-        brw = bin_text_write_fixed(model_file, (char*)it->first.c_str(), sizeof(*it->first.c_str()),
-                                   msg, true);
-
+        //cout << it->first << endl;
+        cout << "(char*)it->first.c_str() " << (char*)it->first.c_str() << endl;
+        cout << "it->second "  << it->second << endl;
+        brw = bin_text_write_fixed(model_file, (char*)it->first.c_str(), sizeof(*it->first.c_str()), msg, true);
         msg << ":" << it->second << ":" << *v << "\n";
         brw += bin_text_write_fixed(model_file, (char *)v, sizeof(*v), msg, true);
       }
@@ -608,6 +622,7 @@ void save_load_regressor(vw& all, io_buf& model_file, bool read, bool text)
         { THROW("Model content is corrupted, weight vector index " << i << " must be less than total vector length " << length);
         }
         v = &(all.reg.weight_vector[stride*i]);
+
         brw += bin_read_fixed(model_file, (char*)v, sizeof(*v), "");
       }
     }
@@ -763,6 +778,7 @@ void save_load_online_state(vw& all, io_buf& model_file, bool read, bool text, g
         msg << i;
         brw = bin_text_write_fixed(model_file, (char *)&i, sizeof(i),
                                    msg, text);
+
         if (g == nullptr || (! g->adaptive && ! g->normalized))
           { msg << ":" << *v << "\n";
           brw += bin_text_write_fixed(model_file, (char *)v, sizeof(*v),
@@ -789,7 +805,9 @@ void save_load_online_state(vw& all, io_buf& model_file, bool read, bool text, g
 }
 
 void save_load(gd& g, io_buf& model_file, bool read, bool text)
-{ vw& all = *g.all;
+{
+  cout << " does this trigger to save model? " << endl;
+  vw& all = *g.all;
   if(read)
   { initialize_regressor(all);
 
@@ -800,7 +818,7 @@ void save_load(gd& g, io_buf& model_file, bool read, bool text)
       { all.reg.weight_vector[j] = all.initial_t;   //for adaptive update, we interpret initial_t as previously seeing initial_t fake datapoints, all with squared gradient=1
         //NOTE: this is not invariant to the scaling of the data (i.e. when combined with normalized). Since scaling the data scales the gradient, this should ideally be
         //feature_range*initial_t, or something like that. We could potentially fix this by just adding this base quantity times the current range to the sum of gradients
-        //stored in memory at each update, and always start sum of gradients to 0, at the price of additional additions and multiplications during the update...
+        //stored in memo,ry at each update, and always start sum of gradients to 0, at the price of additional additions and multiplications during the update...
       }
     }
 
@@ -821,8 +839,9 @@ void save_load(gd& g, io_buf& model_file, bool read, bool text)
       // save_load_online_state(g, model_file, read, text);
       save_load_online_state(all, model_file, read, text, &g);
     }
-    else
+    else{
       save_load_regressor(all, model_file, read, text);
+    }
   }
 }
 
@@ -946,8 +965,6 @@ base_learner* setup(vw& all)
   if (pow((double)all.eta_decay_rate, (double)all.numpasses) < 0.0001 )
     cerr << "Warning: the learning rate for the last pass is multiplied by: " << pow((double)all.eta_decay_rate, (double)all.numpasses)
          << " adjust --decay_learning_rate larger to avoid this." << endl;
-
-
 
   if (all.reg_mode % 2)
     if (all.audit || all.hash_inv)

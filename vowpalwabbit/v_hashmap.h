@@ -136,6 +136,8 @@ public:
 
   void put_after_get_nogrow(K& key, uint64_t hash, V val)
   { //printf("++[lp=%d\tocc=%d\thash=%llu]\n", last_position, dat[last_position].occupied, hash);
+    std::cout << "key: " << key << std::endl;
+    //std::cout << "val: " << val << std::endl;
     dat[last_position].occupied = true;
     dat[last_position].key = key;
     dat[last_position].val = val;
@@ -160,6 +162,8 @@ public:
     for (auto& e : tmp)
     { get(e.key, e.hash);
       //      std::cerr << "reinserting " << e->key << " at " << last_position << std::endl;
+      std::cout << " e.hash " << e.hash << std::endl;
+      //std::cout << " e.val " << e.val << std::endl;
       put_after_get_nogrow(e.key, e.hash, e.val);
     }
     tmp.delete_v();
@@ -190,6 +194,8 @@ public:
       // there's something there that's NOT us -- advance pointer
       //cerr << "+";
       //num_linear_steps++;
+      std::cout << "key: " << key << std::endl;
+      std::cout << "hash: " << hash << std::endl;
       last_position++;
       if (last_position >= sz)
         last_position = 0;
@@ -234,6 +240,8 @@ public:
     { num_occupants++;
       if (num_occupants*4 >= base_size())          // grow when we're a quarter full
       { double_size();
+          std::cout << "key: " << key << std::endl;
+          std::cout << "hash: " << hash << std::endl;
         get(key, hash);  // probably should change last_position-- this is the lazy man's way to do it
       }
     }
@@ -244,6 +252,7 @@ public:
 
   void put(K& key, uint64_t hash, V val)
   { get(key, hash);
+    std::cout << "hash " << hash << std::endl;
     put_after_get(key, hash, val);
   }
 

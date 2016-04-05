@@ -701,7 +701,6 @@ void parse_feature_tweaks(vw& all)
     { *i = spoof_hex_encoded_namespaces(*i);
       for (string::const_iterator j = i->begin(); j != i->end(); j++)
         all.ignore[(size_t)(unsigned char)*j] = true;
-
     }
 
     if (!all.quiet)

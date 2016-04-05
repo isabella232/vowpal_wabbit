@@ -279,7 +279,8 @@ inline size_t bin_text_write(io_buf& io, char* data, uint32_t len,
 inline size_t bin_text_read_write(io_buf& io, char* data, uint32_t len,
                                   const char* read_message, bool read,
                                   stringstream& msg, bool text)
-{ if (read)
+{
+  if (read)
     return bin_read(io, data, len, read_message);
   else
     return bin_text_write(io,data,len, msg, text);
@@ -287,13 +288,16 @@ inline size_t bin_text_read_write(io_buf& io, char* data, uint32_t len,
 
 inline size_t bin_text_write_fixed(io_buf& io, char* data, uint32_t len,
                                    stringstream& msg, bool text)
-{ if (text)
+{
+
+  if (text)
   { size_t temp = bin_write_fixed(io, msg.str().c_str(), (uint32_t)msg.str().size());
     msg.str("");
     return temp;
   }
-  else
+  else{
     return bin_write_fixed (io, data, len);
+  }
   return 0;
 }
 

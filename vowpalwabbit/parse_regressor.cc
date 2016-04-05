@@ -376,7 +376,6 @@ void save_load_header(vw& all, io_buf& model_file, bool read, bool text)
 
         uint32_t check_sum_saved = check_sum;
 
-        msg << "Checksum: "<< check_sum << "\n";
         bin_text_read_write(model_file, (char*)&check_sum, sizeof(check_sum),
                             "", read, msg, text);
 
