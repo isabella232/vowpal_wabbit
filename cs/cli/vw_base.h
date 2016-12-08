@@ -25,7 +25,7 @@ namespace VW
     /// <remarks>
     /// Since the model class must delay diposal of <see cref="m_vw"/> until all referencing
     /// VowpalWabbit instances are disposed, the base class does not dispose <see cref="m_vw"/>.
-    /// </remarks>
+    /// </remarks> 
     public ref class VowpalWabbitBase abstract
     {
     private:
@@ -74,7 +74,7 @@ namespace VW
         /// <summary>
         /// Example pool. Kept in base to simplify deallocation.
         /// </summary>
-        Stack<VowpalWabbitExample^>^ m_examples;
+        IBag<VowpalWabbitExample^>^ m_examples;
 
         /// <summary>
         /// Initializes a new <see cref="VowpalWabbitBase"/> instance.
@@ -92,7 +92,11 @@ namespace VW
         /// </summary>
         void InternalDispose();
 
+        void DisposeExample(VowpalWabbitExample^ ex);
+
     public:
+        static VowpalWabbitBase();
+
         /// <summary>
         /// Cleanup.
         /// </summary>
@@ -127,7 +131,7 @@ namespace VW
         /// Performs the following steps to reset the learning state:
         ///
         /// - Save model to in-memory buffer
-        /// - Dipose existing instance
+        /// - Dispose existing instance
         /// - Initialize new instance from in-memory buffer
         /// </summary>
         void Reload([System::Runtime::InteropServices::Optional] String^ args);

@@ -13,8 +13,11 @@ license as described in the file LICENSE.
 #include "vw_allreduce.h"
 #include "vw_builder.h"
 #include "clr_io.h"
+#include "lda_core.h"
+#include "parse_example.h"
 
 using namespace System;
+using namespace System::Collections::Generic;
 using namespace System::Text;
 
 namespace VW
@@ -162,7 +165,7 @@ namespace VW
     }
   }
 
-  uint64_t VowpalWabbit::HashFeatureNative(String^ s, size_t u)
+  uint64_t VowpalWabbit::HashFeatureNative(String^ s, uint64_t u)
   {
     auto bytes = System::Text::Encoding::UTF8->GetBytes(s);
     auto handle = GCHandle::Alloc(bytes, GCHandleType::Pinned);
@@ -257,6 +260,78 @@ namespace VW
     CATCHRETHROW
   }
 
+  public ref struct ParseJsonState
+  {
+	  VowpalWabbit^ vw;
+	  List<VowpalWabbitExample^>^ examples;
+  };
+
+  example& get_example_from_pool(void* v)
+  {
+	  interior_ptr<ParseJsonState^> state = (interior_ptr<ParseJsonState^>)v;
+
+	  auto ex = (*state)->vw->GetOrCreateNativeExample();
+	  (*state)->examples->Add(ex);
+
+	  return *ex->m_example;
+  }
+
+  List<VowpalWabbitExample^>^ VowpalWabbit::ParseJson(String^ line)
+  {
+#if _DEBUG
+	  if (line == nullptr)
+		  throw gcnew ArgumentNullException("line");
+#endif
+	  auto bytes = System::Text::Encoding::UTF8->GetBytes(line);
+	  auto valueHandle = GCHandle::Alloc(bytes, GCHandleType::Pinned);
+
+	  try
+	  {
+		  ParseJsonState^ state = gcnew ParseJsonState();
+		  state->vw = this;
+		  state->examples = gcnew List<VowpalWabbitExample^>();
+
+		  try
+		  {
+			  auto ex = GetOrCreateNativeExample();
+			  state->examples->Add(ex);
+
+			  v_array<example*> examples = v_init<example*>();
+			  example* native_example = ex->m_example;
+			  examples.push_back(native_example);
+
+			  interior_ptr<ParseJsonState^> state_ptr = &state;
+
+			  VW::read_line_json(
+				  *m_vw, 
+				  examples,
+				  reinterpret_cast<char*>(valueHandle.AddrOfPinnedObject().ToPointer()),
+				  get_example_from_pool,
+				  &state);
+
+			  // finalize example
+			  VW::setup_examples(*m_vw, examples);
+
+			  // remember the input string for debugging purposes
+			  ex->VowpalWabbitString = line;
+
+			  return state->examples;
+		  }
+		  catch (...)
+		  {
+			  // cleanup
+			  for each (auto ex in state->examples)
+				  delete ex;
+			  throw;
+		  }
+	  }
+	  CATCHRETHROW
+		  finally
+	  {
+		  valueHandle.Free();
+	  }
+  }
+
   VowpalWabbitExample^ VowpalWabbit::ParseLine(String^ line)
   {
 #if _DEBUG
@@ -275,7 +350,6 @@ namespace VW
         VW::read_line(*m_vw, ex->m_example, reinterpret_cast<char*>(valueHandle.AddrOfPinnedObject().ToPointer()));
 
         // finalize example
-        VW::parse_atomic_example(*m_vw, ex->m_example, false);
         VW::setup_example(*m_vw, ex->m_example);
 
         // remember the input string for debugging purposes
@@ -525,11 +599,11 @@ namespace VW
   /// <param name="u">Hash offset.</param>
   /// <returns>The resulting hash code.</returns>
   //template<bool replaceSpace>
-  size_t hashall(String^ s, size_t u)
+  uint64_t hashall(String^ s, int offset, int count, uint64_t u)
   { // get raw bytes from string
-    auto keys = Encoding::UTF8->GetBytes(s);
-    int length = keys->Length;
-
+	auto keys = gcnew cli::array<unsigned char>(Encoding::UTF8->GetMaxByteCount(count));
+    int length = Encoding::UTF8->GetBytes(s, offset, count, keys, 0);
+	
     // TOOD: benchmark and verify correctness
     //if (replaceSpace)
     //{
@@ -552,7 +626,7 @@ namespace VW
     //  }
     //}
 
-    uint32_t h1 = u;
+    uint32_t h1 = (uint32_t)u;
     uint32_t k1 = 0;
 
     const uint32_t c1 = 0xcc9e2d51;
@@ -597,6 +671,11 @@ namespace VW
     return MURMUR_HASH_3::fmix(h1);
   }
 
+  uint64_t hashall(String^ s, uint64_t u)
+  {
+	  return hashall(s, 0, s->Length, u);
+  }
+
   /// <summary>
   /// Hashes the given value <paramref name="s"/>.
   /// </summary>
@@ -605,17 +684,26 @@ namespace VW
   /// <returns>The resulting hash code.</returns>
   size_t hashstring(String^ s, size_t u)
   {
-    s = s->Trim();
+	  int offset = 0;
+	  int end = s->Length;
+	  if (end == 0)
+		  return u;
 
-    int sInt = 0;
-    if (int::TryParse(s, sInt))
-    {
-      return sInt + u;
-    }
-    else
-    {
-      return hashall(s, u);
-    }
+	  //trim leading whitespace but not UTF-8
+	  for (;offset < s->Length && s[offset] <= 0x20;offset++);
+	  for (;end >= offset && s[end - 1] <= 0x20;end--);
+
+	  int sInt = 0;
+	  for (int i = offset;i < end;i++)
+	  {
+		  auto c = s[i];
+		  if (c >= '0' && c <= '9')
+			  sInt = 10 * sInt + (c - '0');
+		  else
+			  return hashall(s, offset, end - offset, u);
+	  }
+
+	  return sInt + u;
   }
 
   Func<String^, size_t, size_t>^ VowpalWabbit::GetHasher()
@@ -649,7 +737,9 @@ namespace VW
 
   VowpalWabbitExample^ VowpalWabbit::GetOrCreateNativeExample()
   {
-    if (m_examples->Count == 0)
+    auto ex = m_examples->Remove();
+
+    if (ex == nullptr)
     {
       try
       {
@@ -659,8 +749,6 @@ namespace VW
       }
       CATCHRETHROW
     }
-
-    auto ex = m_examples->Pop();
 
     try
     {
@@ -677,19 +765,75 @@ namespace VW
 #if _DEBUG
     if (m_vw == nullptr)
       throw gcnew ObjectDisposedException("VowpalWabbitExample was not properly disposed as the owner is already disposed");
+#endif
 
     if (ex == nullptr)
       throw gcnew ArgumentNullException("ex");
-#endif
 
     // make sure we're not a ring based example
     assert(!VW::is_ring_example(*m_vw, ex->m_example));
 
+    // the bag might have reached it's limit
     if (m_examples != nullptr)
-      m_examples->Push(ex);
+    {
+      if (!m_examples->TryAdd(ex))
+        DisposeExample(ex);
+    }
 #if _DEBUG
     else // this should not happen as m_vw is already set to null
       throw gcnew ObjectDisposedException("VowpalWabbitExample was disposed after the owner is disposed");
 #endif
+  }
+  
+  cli::array<List<VowpalWabbitFeature^>^>^ VowpalWabbit::GetTopicAllocation(int top)
+  {
+	  uint64_t length = (uint64_t)1 << m_vw->num_bits;
+	  // using jagged array to enable LINQ
+	  auto K = (int)m_vw->lda;
+	  auto allocation = gcnew cli::array<List<VowpalWabbitFeature^>^>(K);
+
+	  // TODO: better way of peaking into lda?
+	  auto lda_rho = m_vw->vm["lda_rho"].as<float>();
+	  
+	  std::vector<feature> top_weights;
+	  // over topics
+	  for (int topic = 0; topic < K; topic++)
+	  {
+		  get_top_weights(m_vw, top, topic, top_weights);
+
+		  auto clr_weights = gcnew List<VowpalWabbitFeature^>(top);
+		  allocation[topic] = clr_weights;
+		  for (auto& pair : top_weights)
+			  clr_weights->Add(gcnew VowpalWabbitFeature(this, pair.x, pair.weight_index));
+	  }
+
+	  return allocation;
+  }
+
+
+  cli::array<cli::array<float>^>^  VowpalWabbit::GetTopicAllocation()
+  {
+	  uint64_t length = (uint64_t)1 << m_vw->num_bits;
+
+	  // using jagged array to enable LINQ
+	  auto K = (int)m_vw->lda;
+	  auto allocation = gcnew cli::array<cli::array<float>^>(K);
+	  for (int k = 0; k < K; k++)
+		  allocation[k] = gcnew cli::array<float>((int)length);
+
+	  // TODO: better way of peaking into lda?
+	  auto lda_rho = m_vw->vm["lda_rho"].as<float>();
+
+	  // over weights
+	  weight_parameters& weights = m_vw->weights;
+	  weight_parameters::iterator iter = weights.begin();
+	  for (uint64_t i = 0; i < length; i++, ++iter)
+	  {   // over topics
+		  weight_parameters::iterator::w_iter v = iter.begin();
+		  for (uint64_t k = 0; k < K; k++, ++v)
+		    allocation[(int)k][(int)i] = *v + lda_rho;
+	  }
+
+	  return allocation;
   }
 }

@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "vw.h"
 #include "parse_regressor.h"
+using namespace std;
 
 void dispatch_example(vw& all, example& ec)
 { if (ec.test_only || !all.training)
@@ -8,6 +9,27 @@ void dispatch_example(vw& all, example& ec)
   else
     all.l->learn(ec);
   all.l->finish_example(all, ec);
+}
+
+namespace prediction_type
+{
+#define CASE(type) case type: return #type; 
+
+	const char* to_string(prediction_type_t prediction_type)
+	{
+		switch (prediction_type)
+		{
+			CASE(scalar)
+			CASE(scalars)
+			CASE(action_scores)
+			CASE(action_probs)
+			CASE(multiclass)
+			CASE(multilabels)
+			CASE(prob)
+			CASE(multiclassprobs)
+		default: return "<unsupported>";
+		}
+	}
 }
 
 namespace LEARNER

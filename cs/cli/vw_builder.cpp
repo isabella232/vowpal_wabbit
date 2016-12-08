@@ -42,7 +42,6 @@ namespace VW
         try
         {
             // finalize example
-            VW::parse_atomic_example(*m_vw->Native->m_vw, m_example->m_example, false);
             VW::setup_example(*m_vw->Native->m_vw, m_example->m_example);
         }
         CATCHRETHROW
@@ -54,22 +53,12 @@ namespace VW
         return ret;
     }
 
-    void VowpalWabbitExampleBuilder::ParseLabel(String^ value)
+    void VowpalWabbitExampleBuilder::ApplyLabel(ILabel^ label)
     {
-        if (value == nullptr)
+        if (label == nullptr)
             return;
 
-        auto bytes = System::Text::Encoding::UTF8->GetBytes(value);
-        auto valueHandle = GCHandle::Alloc(bytes, GCHandleType::Pinned);
-
-        try
-        {
-            VW::parse_example_label(*m_vw->Native->m_vw, *m_example->m_example, reinterpret_cast<char*>(valueHandle.AddrOfPinnedObject().ToPointer()));
-        }
-        CATCHRETHROW
-        finally
-        { valueHandle.Free();
-        }
+        label->UpdateExample(m_vw->Native->m_vw, m_example->m_example);
     }
 
     VowpalWabbitNamespaceBuilder^ VowpalWabbitExampleBuilder::AddNamespace(Char featureGroup)
@@ -101,6 +90,14 @@ namespace VW
         if (m_features->size() > 0)
         {
             unsigned char temp = m_index;
+
+            // avoid duplicate insertion
+            // can't check at the beginning, because multiple builders can be open
+            // at the same time
+            for (unsigned char ns : m_example->indices)
+                if (ns == temp)
+                    return;
+
             m_example->indices.push_back(temp);
         }
     }
@@ -132,5 +129,10 @@ namespace VW
     {
         m_features->values.resize(m_features->values.end() - m_features->values.begin() + size);
         m_features->indicies.resize(m_features->indicies.end() - m_features->indicies.begin() + size);
+    }
+
+    size_t VowpalWabbitNamespaceBuilder::FeatureCount::get()
+    {
+        return m_features->size();
     }
 }

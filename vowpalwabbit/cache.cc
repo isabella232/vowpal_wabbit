@@ -6,6 +6,9 @@ license as described in the file LICENSE.
 #include "cache.h"
 #include "unique_sort.h"
 #include "global_data.h"
+#include "vw.h"
+
+using namespace std;
 
 const size_t int_size = 11;
 const size_t char_size = 2;
@@ -55,9 +58,8 @@ __attribute__((packed))
 #endif
 ;
 
-int read_cached_features(void* in, example* ec)
-{ vw* all = (vw*)in;
-  example* ae = (example*)ec;
+int read_cached_features(vw* all, v_array<example*>& examples)
+{ example* ae = examples[0];
   ae->sorted = all->p->sorted_cache;
   io_buf* input = all->p->input;
 

@@ -15,6 +15,7 @@ license as described in the file LICENSE.
 namespace VW
 {
     ref class VowpalWabbitExampleBuilder;
+	ref struct VowpalWabbitFeature;
 
     /// <summary>
     /// Simple string example based wrapper for vowpal wabbit.
@@ -70,6 +71,15 @@ namespace VW
         /// </returns>
         VowpalWabbitExample^ ParseLine(String^ line);
 
+		/// <summary>
+		/// Parses <paramref name="line"/> using the C++ parser.
+		/// TODO: this should return VowpalWabbitExampleCollection, but that would require moving VowpalWaabitExampleCollection to C++/CLI
+		/// </summary>
+		/// <returns>
+		/// Returns a <see cref="VowpalWabbitExample"/> ready to be used for <see cref="Learn(VowpalWabbitExample^)"/> or <see cref="Predict(VowpalWabbitExample^)"/>.
+		/// </returns>
+		List<VowpalWabbitExample^>^ ParseJson(String^ line);
+
         /// <summary>
         /// Hashes the given namespace <paramref name="s"/>.
         /// </summary>
@@ -103,6 +113,16 @@ namespace VW
         /// <returns>The resulting hash code.</returns>
         /// <remarks>The hash code depends on the vowpal wabbit instance as different has functions can be configured.</remarks>
         uint64_t HashFeature(String^ s, size_t u);
+
+		/// <summary>
+		/// Return full topic allocation [topic, feature].
+		/// </summary>
+		cli::array<cli::array<float>^>^ GetTopicAllocation();
+
+		/// <summary>
+		/// Return the <paramref name="top"/> topic weights.
+		/// </summary>
+		cli::array<System::Collections::Generic::List<VowpalWabbitFeature^>^>^ GetTopicAllocation(int top);
 
         /// <summary>
         /// The associated <see cref="VowpalWabbitBase"/> instance learns from this example and returns the prediction result for this example.

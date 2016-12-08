@@ -25,31 +25,45 @@ using namespace std;
 #include "vw_validate.h"
 #include "vw_versions.h"
 
+
+struct initial_t
+{private:
+	weight _initial;
+public:
+	initial_t(weight initial) : _initial(initial){}
+	void operator()(weight_parameters::iterator& iter, uint64_t /*index*/)
+	{
+		*iter = _initial;
+	}
+};
+void random_positive(weight_parameters::iterator& iter, uint64_t ind)
+{*iter = (float)(0.1 * merand48(ind));
+}
+
+void random_weights(weight_parameters::iterator& iter, uint64_t ind)
+{*iter = (float)(merand48(ind) - 0.5);
+}
 void initialize_regressor(vw& all)
 { // Regressor is already initialized.
-  if (all.reg.weight_vector != nullptr)
-  { return;
-  }
-
+  if (all.weights.not_null())
+    return;
   size_t length = ((size_t)1) << all.num_bits;
-  all.reg.weight_mask = (length << all.reg.stride_shift) - 1;
   try
-    { all.reg.weight_vector = calloc_mergable_or_throw<weight>(length << all.reg.stride_shift);
-    }
+    { new(&all.weights) weight_parameters(length, all.weights.stride_shift()); }
   catch (VW::vw_exception anExc)
     { THROW(" Failed to allocate weight array with " << all.num_bits << " bits: try decreasing -b <bits>");
     }
-  if (all.reg.weight_vector == nullptr)
+  if (!all.weights.not_null())
     { THROW(" Failed to allocate weight array with " << all.num_bits << " bits: try decreasing -b <bits>"); }
   else if (all.initial_weight != 0.)
-    for (size_t j = 0; j < length << all.reg.stride_shift; j+= ( ((size_t)1) << all.reg.stride_shift))
-      all.reg.weight_vector[j] = all.initial_weight;
+  {
+	  initial_t init(all.initial_t);
+	  all.weights.set_default<initial_t>(init);
+  }
   else if (all.random_positive_weights)
-    for (size_t j = 0; j < length; j++)
-      all.reg.weight_vector[j << all.reg.stride_shift] = (float)(0.1 * frand48());
+	  all.weights.set_default<random_positive>();
   else if (all.random_weights)
-    for (size_t j = 0; j < length; j++)
-      all.reg.weight_vector[j << all.reg.stride_shift] = (float)(frand48() - 0.5);
+	  all.weights.set_default<random_weights>();
 }
 
 const size_t default_buf_size = 512;
@@ -98,12 +112,14 @@ void save_load_header(vw& all, io_buf& model_file, bool read, bool text)
       stringstream msg;
       msg << "Version " << version.to_string() << "\n";
       memcpy(buff2, version.to_string().c_str(), min(v_length, buf2_size));
-      if (read)
-        v_length = (uint32_t)buf2_size;
+	  if (read)
+	  { v_length = (uint32_t)buf2_size;
+		if (v_length > 0) // all.model_file_ver = buff2; uses scanf which doesn't accept a maximum buffer length, but just expects valid zero terminated string
+			buff2[min(v_length, default_buf_size) - 1] = '\0';
+	  }
       bytes_read_write += bin_text_read_write(model_file, buff2, v_length,
                                               "", read, msg, text);
       all.model_file_ver = buff2; //stored in all to check save_resume fix in gd
-
       VW::validate_version(all);
 
       if (all.model_file_ver >= VERSION_FILE_WITH_HEADER_CHAINED_HASH)
@@ -140,14 +156,6 @@ void save_load_header(vw& all, io_buf& model_file, bool read, bool text)
       msg << "Max label:" << all.sd->max_label << "\n";
       bytes_read_write += bin_text_read_write_fixed_validated(model_file, (char*)&all.sd->max_label, sizeof(all.sd->max_label),
                                                               "", read, msg, text);
-
-      VW::validate_min_max_label(all);
-
-      if (read && find(all.args.begin(), all.args.end(), "--max_prediction") == all.args.end())
-      { all.args.push_back("--max_prediction");
-        all.args.push_back(boost::lexical_cast<std::string>(all.sd->max_label));
-      }
-
 
       msg << "bits:" << all.num_bits << "\n";
       uint32_t local_num_bits = all.num_bits;
@@ -404,7 +412,8 @@ void save_load_header(vw& all, io_buf& model_file, bool read, bool text)
 
 void dump_regressor(vw& all, io_buf& buf, bool as_text)
 { save_load_header(all, buf, false, as_text);
-  all.l->save_load(buf, false, as_text);
+  if (all.l != nullptr)
+    all.l->save_load(buf, false, as_text);
 
   buf.flush(); // close_file() should do this for me ...
   buf.close_file();
@@ -472,8 +481,7 @@ void parse_regressor_args(vw& all, io_buf& io_temp)
 void parse_mask_regressor_args(vw& all)
 { po::variables_map& vm = all.vm;
   if (vm.count("feature_mask"))
-  { size_t length = ((size_t)1) << all.num_bits;
-    string mask_filename = vm["feature_mask"].as<string>();
+  { string mask_filename = vm["feature_mask"].as<string>();
     if (vm.count("initial_regressor"))
     { vector<string> init_filename = vm["initial_regressor"].as< vector<string> >();
       if(mask_filename == init_filename[0])   //-i and -mask are from same file, just generate mask
@@ -499,9 +507,8 @@ void parse_mask_regressor_args(vw& all)
       io_temp.close_file();
 
       // Re-zero the weights, in case weights of initial regressor use different indices
-      for (size_t j = 0; j < length; j++)
-      { all.reg.weight_vector[j << all.reg.stride_shift] = 0.;
-      }
+	  weight_parameters& weights = all.weights;
+	  weights.set_zero(0);
     }
     else
     { // If no initial regressor, just clear out the options loaded from the header.

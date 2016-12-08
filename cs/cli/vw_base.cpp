@@ -22,20 +22,35 @@ using namespace System::Text;
 
 namespace VW
 {
+    static VowpalWabbitBase::VowpalWabbitBase()
+    {
+        // make sure zlib.dll is loaded before anybody changes the current directory and we can't load anymore...
+        auto str = System::IO::Path::Combine(System::IO::Path::GetDirectoryName(VowpalWabbitBase::typeid->Assembly->Location), "zlib.dll");
+        wstring path = msclr::interop::marshal_as<std::wstring>(str);
+        LoadLibrary(path.c_str());
+    }
+
     VowpalWabbitBase::VowpalWabbitBase(VowpalWabbitSettings^ settings)
         : m_examples(nullptr), m_vw(nullptr), m_model(nullptr), m_settings(settings != nullptr ? settings : gcnew VowpalWabbitSettings), m_instanceCount(0)
     {
-        m_examples = gcnew Stack<VowpalWabbitExample^>;
+        if (m_settings->EnableThreadSafeExamplePooling)
+          m_examples = Bag::CreateLockFree<VowpalWabbitExample^>();
+        else
+          m_examples = Bag::Create<VowpalWabbitExample^>(m_settings->MaxExamples);
 
         try
         {
             try
             {
-                auto string = msclr::interop::marshal_as<std::string>(settings->Arguments);
+                std::string string;
+                if (settings->Arguments != nullptr)
+                    string = msclr::interop::marshal_as<std::string>(settings->Arguments);
 
                 if (settings->Model != nullptr)
                 {
                     m_model = settings->Model;
+                    if (!settings->Verbose && !settings->Arguments->Contains("--quiet") && !m_model->Arguments->CommandLine->Contains("--quiet"))
+                        string.append(" --quiet");
                     m_vw = VW::seed_vw_model(m_model->m_vw, string);
                     m_model->IncrementReference();
                 }
@@ -43,6 +58,9 @@ namespace VW
                 {
                     if (settings->ModelStream == nullptr)
                     {
+                        if (!settings->Verbose && !settings->Arguments->Contains("--quiet"))
+                            string.append(" --quiet");
+
                         m_vw = VW::initialize(string);
                     }
                     else
@@ -93,34 +111,34 @@ namespace VW
         }
     }
 
+    void VowpalWabbitBase::DisposeExample(VowpalWabbitExample^ ex)
+    {
+        VW::dealloc_example(m_vw->p->lp.delete_label, *ex->m_example);
+        ::free_it(ex->m_example);
+
+        // cleanup pointers in example chain
+        auto inner = ex;
+        while ((inner = inner->InnerExample) != nullptr)
+        {
+          inner->m_owner = nullptr;
+          inner->m_example = nullptr;
+        }
+
+        ex->m_example = nullptr;
+
+        // avoid that this example is returned again
+        ex->m_owner = nullptr;
+    }
+
     void VowpalWabbitBase::InternalDispose()
     {
         if (m_vw != nullptr)
         {
             // de-allocate example pools that are managed for each even shared instances
-            auto delete_prediction = m_vw->delete_prediction;
-            auto delete_label = m_vw->p->lp.delete_label;
-
             if (m_examples != nullptr)
             {
-                for each (auto ex in m_examples)
-                {
-                    VW::dealloc_example(delete_label, *ex->m_example, delete_prediction);
-                    ::free_it(ex->m_example);
-
-                    // cleanup pointers in example chain
-                    auto inner = ex;
-                    while ((inner = inner->InnerExample) != nullptr)
-                    {
-                        inner->m_owner = nullptr;
-                        inner->m_example = nullptr;
-                    }
-
-                    ex->m_example = nullptr;
-
-                    // avoid that this example is returned again
-                    ex->m_owner = nullptr;
-                }
+                for each (auto ex in m_examples->RemoveAll())
+                    DisposeExample(ex);
 
                 m_examples = nullptr;
             }
@@ -137,6 +155,7 @@ namespace VW
         {
             if (m_vw != nullptr)
             {
+                reset_source(*m_vw, m_vw->num_bits);
                 release_parser_datastructures(*m_vw);
 
                 // make sure don't try to free m_vw twice in case VW::finish throws.
@@ -181,6 +200,8 @@ namespace VW
 
         try
         {
+            reset_source(*m_vw, m_vw->num_bits);
+
             VW::save_predictor(*m_vw, mem_buf);
             mem_buf.flush();
 

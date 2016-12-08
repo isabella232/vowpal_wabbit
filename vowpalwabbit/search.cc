@@ -94,14 +94,14 @@ struct action_repr
 { action a;
   features *repr;
   action_repr(action _a, features* _repr) : a(_a)
-  { if(_repr!=NULL)
+  { if(_repr!=nullptr)
     { repr = new features(); 
       repr->deep_copy_from(*_repr);
     }
     else
-      repr = NULL;
+      repr = nullptr;
   }
-  action_repr(action _a) : a(_a), repr(NULL) {}
+  action_repr(action _a) : a(_a), repr(nullptr) {}
 };
 
 struct action_cache
@@ -116,6 +116,7 @@ std::ostream& operator << (std::ostream& os, const action_cache& x) { os << x.k 
 struct search_private
 { vw* all;
 
+  uint64_t offset;
   bool auto_condition_features;  // do you want us to automatically add conditioning features?
   bool auto_hamming_loss;        // if you're just optimizing hamming loss, we can do it for you!
   bool examples_dont_change;     // set to true if you don't do any internal example munging
@@ -162,7 +163,6 @@ struct search_private
   float test_loss;               // loss incurred when run INIT_TEST
   float learn_loss;              // loss incurred when run LEARN
   float train_loss;              // loss incurred when run INIT_TRAIN
-  float total_example_t;         // accumulated weight of examples
 
   bool last_example_was_newline; // used so we know when a block of examples has passed
   bool hit_new_pass;             // have we hit a new pass?
@@ -450,8 +450,8 @@ void print_update(search_private& priv)
 }
 
 void add_new_feature(search_private& priv, float val, uint64_t idx)
-{ uint64_t mask = priv.all->reg.weight_mask;
-  size_t ss   = priv.all->reg.stride_shift;
+{ uint64_t mask = priv.all->weights.mask();
+size_t ss = priv.all->weights.stride_shift();
   uint64_t idx2 = ((idx & mask) >> ss) & mask;
   features& fs = priv.dat_new_feature_ec->feature_space[priv.dat_new_feature_namespace];
   fs.push_back(val * priv.dat_new_feature_value, ((priv.dat_new_feature_idx + idx2) << ss) );
@@ -501,12 +501,12 @@ void add_neighbor_features(search_private& priv)
 
       //cerr << "n=" << n << " offset=" << offset << endl;
       if ((offset < 0) && (n < (uint64_t)(-offset))) // add <s> feature
-        add_new_feature(priv, 1., 925871901 << priv.all->reg.stride_shift);
+		  add_new_feature(priv, 1., 925871901 << priv.all->weights.stride_shift());
       else if (n + offset >= priv.ec_seq.size()) // add </s> feature
-        add_new_feature(priv, 1., 3824917 << priv.all->reg.stride_shift);
+		  add_new_feature(priv, 1., 3824917 << priv.all->weights.stride_shift());
       else   // this is actually a neighbor
       { example& other = *priv.ec_seq[n + offset];
-        GD::foreach_feature<search_private,add_new_feature>(all.reg.weight_vector, all.reg.weight_mask, other.feature_space[ns], priv, me.ft_offset);
+        GD::foreach_feature<search_private,add_new_feature>(all.weights, other.feature_space[ns], priv, me.ft_offset);
       }
     }
 
@@ -549,11 +549,9 @@ void reset_search_structure(search_private& priv)
     if (priv.beta > 1) priv.beta = 1;
   }
   for (Search::action_repr& ar : priv.ptag_to_action)
-  { if(ar.repr !=NULL)
-    { ar.repr->values.delete_v();
-      ar.repr->indicies.delete_v();
-      ar.repr->space_names.delete_v();
-      cdbg << "delete_v" << endl;
+  { if(ar.repr !=nullptr)
+    { ar.repr->delete_v();
+      delete ar.repr;
     }
   }
   priv.ptag_to_action.erase();
@@ -631,7 +629,7 @@ void add_example_conditioning(search_private& priv, example& ec, size_t conditio
 
       // add the single bias feature
       if (n < priv.acset.max_bias_ngram_length)
-        add_new_feature(priv, 1., 4398201 << priv.all->reg.stride_shift);
+        add_new_feature(priv, 1., 4398201 << priv.all->weights.stride_shift());
 
       // add the quadratic features
       if (n < priv.acset.max_quad_ngram_length)
@@ -640,26 +638,29 @@ void add_example_conditioning(search_private& priv, example& ec, size_t conditio
   }
 
   if (priv.acset.use_passthrough_repr)
+  { cdbg << "BEGIN adding passthrough features" << endl;
     for (size_t i=0; i<I; i++)
-      {
-        features& fs = *(condition_on_actions[i].repr);
-        char name = condition_on_names[i];
-        for (size_t k=0; k<fs.size(); k++)
-          if ((fs.values[k] > 1e-10) || (fs.values[k] < -1e-10))
-            { uint64_t fid = 84913 + 48371803 * (extra_offset + 8392817 * name) + 840137 * (4891 + fs.indicies[k]);
-              if (priv.all->audit)
-                { priv.dat_new_feature_audit_ss.str("");
-                  priv.dat_new_feature_audit_ss.clear();
-                  priv.dat_new_feature_audit_ss << "passthrough_repr_" << i << '_' << k;
-                }
-
-              priv.dat_new_feature_ec  = &ec;
-              priv.dat_new_feature_idx = fid;
-              priv.dat_new_feature_namespace = conditioning_namespace;
-              priv.dat_new_feature_value = fs.values[k];
-              add_new_feature(priv, 1., 4398201 << priv.all->reg.stride_shift);
-            }
-      }
+    { if (condition_on_actions[i].repr == nullptr) continue;
+      features& fs = *(condition_on_actions[i].repr);
+      char name = condition_on_names[i];
+      for (size_t k=0; k<fs.size(); k++)
+        if ((fs.values[k] > 1e-10) || (fs.values[k] < -1e-10))
+        { uint64_t fid = 84913 + 48371803 * (extra_offset + 8392817 * name) + 840137 * (4891 + fs.indicies[k]);
+          if (priv.all->audit)
+          { priv.dat_new_feature_audit_ss.str("");
+            priv.dat_new_feature_audit_ss.clear();
+            priv.dat_new_feature_audit_ss << "passthrough_repr_" << i << '_' << k;
+          }
+          
+          priv.dat_new_feature_ec  = &ec;
+          priv.dat_new_feature_idx = fid;
+          priv.dat_new_feature_namespace = conditioning_namespace;
+          priv.dat_new_feature_value = fs.values[k];
+		  add_new_feature(priv, 1., 4398201 << priv.all->weights.stride_shift());
+        }
+    }
+    cdbg << "END adding passthrough features" << endl;
+  }
 
   features& con_fs = ec.feature_space[conditioning_namespace];
   if ((con_fs.size() > 0) && (con_fs.sum_feat_sq > 0.))
@@ -785,7 +786,7 @@ void allowed_actions_to_label(search_private& priv, size_t ec_cnt, const action*
     }
   }
   else     // non-LDF, no action costs
-  { if ((allowed_actions == NULL) || (allowed_actions_cnt == 0))   // any action is allowed
+  { if ((allowed_actions == nullptr) || (allowed_actions_cnt == 0))   // any action is allowed
     { bool set_to_one = false;
       if (cs_get_costs_size(isCB, lab) != priv.A)
       { cs_costs_erase(isCB, lab);
@@ -830,6 +831,7 @@ template<class T> void push_at(v_array<T>& v, T item, size_t pos)
   else
   { if (v.end_array > v.begin() + pos)
     { // there's enough memory, just not enough filler
+      memset(v.end(), 0, sizeof(T) * (pos - v.size()));
       v.begin()[pos] = item;
       v.end() = v.begin() + pos + 1;
     }
@@ -999,11 +1001,15 @@ action single_prediction_LDF(search_private& priv, example* ecs, size_t ec_cnt, 
 
     polylabel old_label = ecs[a].l;
     ecs[a].l.cs = priv.ldf_test_label;
+    uint64_t old_offset = ecs[a].ft_offset;
+    ecs[a].ft_offset = priv.offset;
     priv.base_learner->predict(ecs[a], policy);
-
+    ecs[a].ft_offset = old_offset;
+    
     priv.empty_example->in_use = true;
+    priv.empty_example->ft_offset = priv.offset;
     priv.base_learner->predict(*priv.empty_example);
-
+    
     cdbg << "partial_prediction[" << a << "] = " << ecs[a].partial_prediction << endl;
 
     if (override_action != (action)-1)
@@ -1140,8 +1146,6 @@ void generate_training_example(search_private& priv, polylabel& losses, float we
   }
   //cdbg << "losses = ["; for (size_t i=0; i<losses.cs.costs.size(); i++) cdbg << ' ' << losses.cs.costs[i].class_index << ':' << losses.cs.costs[i].x; cdbg << " ], min_loss=" << min_loss << endl;
 
-  priv.total_example_t += 1.;   // TODO: should be max-min
-
   if (!priv.is_ldf)     // not LDF
   { // since we're not LDF, it should be the case that ec_ref_cnt == 1
     // and learn_ec_ref[0] is a pointer to a single example
@@ -1149,8 +1153,6 @@ void generate_training_example(search_private& priv, polylabel& losses, float we
     assert(priv.learn_ec_ref != nullptr);
 
     example& ec = priv.learn_ec_ref[0];
-    float old_example_t = ec.example_t;
-    ec.example_t = priv.total_example_t;
     polylabel old_label = ec.l;
     ec.l = losses; // labels;
     if (add_conditioning) add_example_conditioning(priv, ec, priv.learn_condition_on.size(), priv.learn_condition_on_names.begin(), priv.learn_condition_on_act.begin());
@@ -1161,7 +1163,6 @@ void generate_training_example(search_private& priv, polylabel& losses, float we
     }
     if (add_conditioning) del_example_conditioning(priv, ec);
     ec.l = old_label;
-    ec.example_t = old_example_t;
     priv.total_examples_generated++;
   }
   else                  // is  LDF
@@ -1180,8 +1181,6 @@ void generate_training_example(search_private& priv, polylabel& losses, float we
 
       for (action a= (uint32_t)start_K; a<priv.learn_ec_ref_cnt; a++)
       { example& ec = priv.learn_ec_ref[a];
-        float old_example_t = ec.example_t;
-        ec.example_t = priv.total_example_t;
 
         CS::label& lab = ec.l.cs;
         if (lab.costs.size() == 0)
@@ -1191,13 +1190,15 @@ void generate_training_example(search_private& priv, polylabel& losses, float we
         lab.costs[0].x = losses.cs.costs[a-start_K].x;
         //cerr << "cost[" << a << "] = " << losses[a] << " - " << min_loss << " = " << lab.costs[0].x << endl;
         ec.in_use = true;
+	uint64_t old_offset = ec.ft_offset;
+	ec.ft_offset = priv.offset;
         priv.base_learner->learn(ec, learner);
+	ec.ft_offset = old_offset;
 
         cdbg << "generate_training_example called learn on action a=" << a << ", costs.size=" << lab.costs.size() << " ec=" << &ec << endl;
-        ec.example_t = old_example_t;
         priv.total_examples_generated++;
       }
-
+      priv.empty_example->ft_offset = priv.offset;
       priv.base_learner->learn(*priv.empty_example, learner);
       cdbg << "generate_training_example called learn on empty_example" << endl;
     }
@@ -1798,6 +1799,7 @@ void do_actual_learning(vw&all, search& sch)
 template <bool is_learn>
 void search_predict_or_learn(search& sch, base_learner& base, example& ec)
 { search_private& priv = *sch.priv;
+  priv.offset = ec.ft_offset;
   vw* all = priv.all;
   priv.base_learner = &base;
   bool is_real_example = true;
@@ -1968,8 +1970,12 @@ void search_finish(search& sch)
 
   priv.train_trajectory.delete_v();
   for (Search::action_repr& ar : priv.ptag_to_action)
-    if(ar.repr != NULL)
-      ar.repr->delete_v();
+  { if(ar.repr !=nullptr)
+    { ar.repr->delete_v();
+      delete ar.repr;
+      cdbg << "delete_v" << endl;
+    }
+  }
   priv.ptag_to_action.delete_v();
   clear_memo_foreach_action(priv);
   priv.memo_foreach_action.delete_v();
@@ -2331,6 +2337,7 @@ base_learner* setup(vw&all)
 
   // default to OAA labels unless the task wants to override this (which they can do in initialize)
   all.p->lp = MC::mc_label;
+  all.label_type = label_type::mc;
   if (priv.task && priv.task->initialize)
     priv.task->initialize(sch, priv.A, vm);
   if (priv.metatask && priv.metatask->initialize)
@@ -2389,14 +2396,17 @@ action search::predict(example& ec, ptag mytag, const action* oracle_actions, si
   if (mytag != 0)
   { if (mytag < priv->ptag_to_action.size())
     { cdbg << "delete_v at " << mytag << endl;
-      if(priv->ptag_to_action[mytag].repr != NULL)
-        priv->ptag_to_action[mytag].repr->delete_v();
+      if(priv->ptag_to_action[mytag].repr != nullptr)
+      { priv->ptag_to_action[mytag].repr->delete_v();
+        delete priv->ptag_to_action[mytag].repr;
+      }
     }
     if (priv->acset.use_passthrough_repr)
+    { assert((mytag >= priv->ptag_to_action.size()) || (priv->ptag_to_action[mytag].repr ==  nullptr));
       push_at(priv->ptag_to_action, action_repr(a, &(priv->last_action_repr)), mytag);
-    else
-      push_at(priv->ptag_to_action, action_repr(a, (features*)NULL), mytag);
-      cdbg << "push_at " << mytag << endl;
+    } else
+      push_at(priv->ptag_to_action, action_repr(a, (features*)nullptr), mytag);
+    cdbg << "push_at " << mytag << endl;
   }
   if (priv->auto_hamming_loss)
     loss( priv->use_action_costs
@@ -2414,8 +2424,10 @@ action search::predictLDF(example* ecs, size_t ec_cnt, ptag mytag, const action*
   if ((mytag != 0) && ecs[a].l.cs.costs.size() > 0)
   { if (mytag < priv->ptag_to_action.size())
     { cdbg << "delete_v at " << mytag << endl;
-      if(priv->ptag_to_action[mytag].repr != NULL)
-        priv->ptag_to_action[mytag].repr->delete_v();
+      if(priv->ptag_to_action[mytag].repr != nullptr)
+      { priv->ptag_to_action[mytag].repr->delete_v();
+        delete priv->ptag_to_action[mytag].repr;
+      }
     }
     push_at(priv->ptag_to_action, action_repr(ecs[a].l.cs.costs[0].class_index, &(priv->last_action_repr)), mytag);
   }
@@ -2469,8 +2481,8 @@ void search::get_test_action_sequence(vector<action>& V)
 void search::set_num_learners(size_t num_learners) { this->priv->num_learners = num_learners; }
 void search::add_program_options(po::variables_map& /*vw*/, po::options_description& opts) { add_options( *this->priv->all, opts ); }
 
-uint64_t search::get_mask() { return this->priv->all->reg.weight_mask;}
-size_t search::get_stride_shift() { return this->priv->all->reg.stride_shift;}
+uint64_t search::get_mask() { return this->priv->all->weights.mask();}
+size_t search::get_stride_shift() { return this->priv->all->weights.stride_shift(); }
 uint32_t search::get_history_length() { return (uint32_t)this->priv->history_length; }
 
 string search::pretty_label(action a)

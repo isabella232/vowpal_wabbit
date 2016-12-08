@@ -18,6 +18,7 @@ size_t hash_lab(size_t lab) { return 328051 + 94389193 * lab; }
     if (ec.indices.last() == ns && ec.feature_space[(size_t)ns].size() == fs.size())
       ec.indices.pop();
     ec.total_sum_feat_sq -= fs.sum_feat_sq;
+    //ec.num_features -= fs.size();
     del_target.truncate_to(del_target.size() - fs.size());
     del_target.sum_feat_sq -= fs.sum_feat_sq;
   }
@@ -54,7 +55,9 @@ void add_example_namespaces_from_example(example& target, example& source)
 }
 
 void del_example_namespaces_from_example(example& target, example& source)
-{ namespace_index* idx = source.indices.end();
+{ if (source.indices.size() == 0) // making sure we can deal with empty shared example
+    return;
+  namespace_index* idx = source.indices.end();
   idx--;
   for (; idx>=source.indices.begin(); idx--)
     { if (*idx == constant_namespace) continue;

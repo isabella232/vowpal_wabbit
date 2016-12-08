@@ -10,13 +10,16 @@ license as described in the file LICENSE.
 #include "vw_base.h"
 #include "vw_example.h"
 #include "vowpalwabbit.h"
+#include "vw_label.h"
 
 namespace VW
 {
+    using namespace VW::Labels;
+
     /// <summary>
     /// Helper class to ease construction of native vowpal wabbit namespace data structure.
     /// </summary>
-    public ref class VowpalWabbitNamespaceBuilder
+    public ref class VowpalWabbitNamespaceBuilder sealed
     {
     private:
         /// <summary>
@@ -70,12 +73,14 @@ namespace VW
         /// </summary>
         /// <param name="size">The number of features to pre-allocate.</param>
         void PreAllocate(int size);
+
+        property size_t FeatureCount { size_t get(); }
     };
 
     /// <summary>
     /// Helper class to ease construction of native vowpal wabbit example data structure.
     /// </summary>
-    public ref class VowpalWabbitExampleBuilder
+    public ref class VowpalWabbitExampleBuilder sealed
     {
     private:
         IVowpalWabbitExamplePool^ m_vw;
@@ -112,8 +117,7 @@ namespace VW
         /// <summary>
         /// Sets the label for the resulting example.
         /// </summary>
-        /// <param name="value">The label value to be parsed.</param>
-        void ParseLabel(String^ value);
+        void ApplyLabel(ILabel^ label);
 
         /// <summary>
         /// Creates and adds a new namespace to this example.

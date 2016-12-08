@@ -7,9 +7,12 @@ license as described in the file LICENSE.
 #include "vowpalwabbit.h"
 #include "vw_example.h"
 #include "vw_prediction.h"
+#include "gd.h"
 
 namespace VW
 {
+    using namespace Labels;
+
     VowpalWabbitExample::VowpalWabbitExample(IVowpalWabbitExamplePool^ owner, example* example) :
         m_owner(owner), m_example(example), m_innerExample(nullptr)
     {
@@ -41,6 +44,11 @@ namespace VW
         return m_owner;
     }
 
+    size_t VowpalWabbitExample::NumberOfFeatures::get()
+    {
+        return m_example->num_features;
+    }
+
     generic<typename T> T VowpalWabbitExample::GetPrediction(VowpalWabbit^ vw, IVowpalWabbitPredictionFactory<T>^ factory)
     {
 #ifdef _DEBUG
@@ -66,12 +74,36 @@ namespace VW
         return example_is_newline(*m_example) != 0;
     }
 
+    ILabel^ VowpalWabbitExample::Label::get()
+    {
+      ILabel^ label;
+      auto lp = m_owner->Native->m_vw->p->lp;
+      if (!memcmp(&lp, &simple_label, sizeof(lp)))
+        label = gcnew SimpleLabel();
+      else if (!memcmp(&lp, &CB::cb_label, sizeof(lp)))
+        label = gcnew ContextualBanditLabel();
+      else if (!memcmp(&lp, &CB_EVAL::cb_eval, sizeof(lp)))
+        label = gcnew SimpleLabel();
+      else if (!memcmp(&lp, &COST_SENSITIVE::cs_label, sizeof(lp)))
+        label = gcnew SimpleLabel();
+      else
+        return nullptr;
+
+      // TODO:
+      //else if (!memcmp(&lp, &MULTICLASS::multilabel, sizeof(lp)))
+      //  label = gcnew MulticlassLabel;
+      //else if (!memcmp(&lp, &MC::multilabel, sizeof(lp)))
+
+      label->ReadFromExample(this->m_example);
+
+      return label;
+    }
+
     void VowpalWabbitExample::MakeEmpty(VowpalWabbit^ vw)
     {
       char empty = '\0';
       VW::read_line(*vw->m_vw, m_example, &empty);
 
-      VW::parse_atomic_example(*vw->m_vw, m_example, false);
       VW::setup_example(*vw->m_vw, m_example);
     }
 
@@ -107,7 +139,7 @@ namespace VW
 
     System::String^ FormatFeature(vw* vw, feature_value& f1, feature_index& i1)
     {
-        uint64_t masked_weight_index1 = i1 & vw->reg.weight_mask;
+		uint64_t masked_weight_index1 = i1 & vw->weights.mask();
 
         return System::String::Format(
             "weight_index = {0}/{1}, x = {2}",
@@ -146,14 +178,19 @@ namespace VW
         return sb->ToString();
     }
 
-    System::String^ CompareFeatures(vw* vw, features& fa, features& fb)
+    System::String^ CompareFeatures(vw* vw, features& fa, features& fb, unsigned char ns)
     {
         vector<size_t> fa_missing;
         for (size_t ia = 0, ib = 0; ia < fa.values.size(); ia++)
         {
-            uint64_t masked_weight_index = fa.indicies[ia] & vw->reg.weight_mask;
+            auto masked_weight_index = fa.indicies[ia] & vw->weights.mask();
+            auto other_masked_weight_index = fb.indicies[ib] & vw->weights.mask();
 
-            auto other_masked_weight_index = fb.indicies[ib] & vw->reg.weight_mask;
+            /*System::Diagnostics::Debug::WriteLine(System::String::Format("{0} -> {1} vs {2} -> {3}",
+              fa.indicies[ia], masked_weight_index,
+              fb.indicies[ib], other_masked_weight_index
+              ));*/
+
             if (masked_weight_index == other_masked_weight_index && FloatEqual(fa.values[ia], fb.values[ib]))
                 ib++;
             else
@@ -163,8 +200,7 @@ namespace VW
                 bool found = false;
                 for (ib = 0; ib < fb.values.size(); ib++)
                 {
-                    uint64_t other_masked_weight_index = fb.indicies[ib] & vw->reg.weight_mask;
-
+                    auto other_masked_weight_index = fb.indicies[ib] & vw->weights.mask();
                     if (masked_weight_index == other_masked_weight_index)
                     {
                         if (!FloatEqual(fa.values[ia], fb.values[ib]))
@@ -190,11 +226,12 @@ namespace VW
 
         if (!fa_missing.empty())
         {
-            auto diff = gcnew System::Text::StringBuilder("missing: ");
-            for each (size_t ia in fa_missing)
+			auto diff = gcnew System::Text::StringBuilder();
+			diff->AppendFormat("missing features in ns '{0}'/'{1}': ", ns, gcnew Char(ns));
+            for (size_t& ia : fa_missing)
             {
                 diff->AppendFormat("this.weight_index = {0}, x = {1}, ",
-                    fa.indicies[ia] & vw->reg.weight_mask,
+                    fa.indicies[ia] & vw->weights.mask(),
                     fa.values[ia]);
             }
 
@@ -248,11 +285,11 @@ namespace VW
                 return System::String::Format("Feature length differ {0} vs {1}. this({2}) vs other({3})",
                 fa.size(), fb.size(), FormatFeatures(vw->m_vw, fa), FormatFeatures(vw->m_vw, fb));
 
-            auto diff = CompareFeatures(vw->m_vw, fa, fb);
+            auto diff = CompareFeatures(vw->m_vw, fa, fb, *i);
             if (diff != nullptr)
                 return diff;
 
-            diff = CompareFeatures(vw->m_vw, fb, fa);
+            diff = CompareFeatures(vw->m_vw, fb, fa, *i);
             if (diff != nullptr)
                 return diff;
         }
@@ -326,10 +363,10 @@ namespace VW
 
     IEnumerator<VowpalWabbitNamespace^>^ VowpalWabbitExample::GetEnumerator()
     {
-      return gcnew NamespaceEnumerator(m_example);
+      return gcnew NamespaceEnumerator(this);
     }
 
-    VowpalWabbitExample::NamespaceEnumerator::NamespaceEnumerator(example* example)
+    VowpalWabbitExample::NamespaceEnumerator::NamespaceEnumerator(VowpalWabbitExample^ example)
       : m_example(example)
     {
         Reset();
@@ -342,21 +379,21 @@ namespace VW
     {
       m_current++;
 
-      return m_current < m_example->indices.end();
+      return m_current < m_example->m_example->indices.end();
     }
 
     void VowpalWabbitExample::NamespaceEnumerator::Reset()
     {
         // position before the beginning.
-        m_current = m_example->indices.begin() - 1;
+        m_current = m_example->m_example->indices.begin() - 1;
     }
 
     VowpalWabbitNamespace^ VowpalWabbitExample::NamespaceEnumerator::Current::get()
     {
-      if (m_current < m_example->indices.begin() || m_current >= m_example->indices.end())
+      if (m_current < m_example->m_example->indices.begin() || m_current >= m_example->m_example->indices.end())
         throw gcnew InvalidOperationException();
-
-      return gcnew VowpalWabbitNamespace(*m_current, &m_example->feature_space[*m_current]);
+	  
+      return gcnew VowpalWabbitNamespace(m_example, *m_current, &m_example->m_example->feature_space[*m_current]);
     }
 
     System::Object^ VowpalWabbitExample::NamespaceEnumerator::IEnumeratorCurrent::get()
@@ -364,19 +401,51 @@ namespace VW
       return Current;
     }
 
-    VowpalWabbitFeature::VowpalWabbitFeature(feature_value x, uint64_t weight_index)
-      : m_x(x), m_weight_index(weight_index)
+    VowpalWabbitFeature::VowpalWabbitFeature(VowpalWabbitExample^ example, feature_value x, uint64_t weight_index)
+      : m_example(example), m_vw(m_example->Owner->Native), m_x(x), m_weight_index(weight_index)
     { }
+
+	VowpalWabbitFeature::VowpalWabbitFeature(VowpalWabbit^ vw, feature_value x, uint64_t weight_index)
+      : m_vw(vw), m_x(x), m_weight_index(weight_index)
+	{ }
 
     float VowpalWabbitFeature::X::get()
     {
       return m_x;
     }
 
-    uint64_t VowpalWabbitFeature::WeightIndex::get()
+    uint64_t VowpalWabbitFeature::FeatureIndex::get()
     {
       return m_weight_index;
     }
+
+	uint64_t VowpalWabbitFeature::WeightIndex::get()
+	{
+		if (m_example == nullptr)
+			throw gcnew InvalidOperationException("VowpalWabbitFeature must be initialized with example");
+
+		vw* vw = m_example->Owner->Native->m_vw;
+		return ((m_weight_index + m_example->m_example->ft_offset) >> vw->weights.stride_shift()) & vw->parse_mask;
+	}
+
+	float VowpalWabbitFeature::Weight::get()
+	{
+		if (m_example == nullptr)
+			throw gcnew InvalidOperationException("VowpalWabbitFeature must be initialized with example");
+
+		vw* vw = m_example->Owner->Native->m_vw;
+
+		uint64_t weightIndex = m_weight_index + m_example->m_example->ft_offset;
+		return vw->weights[weightIndex];
+	}
+
+
+	float VowpalWabbitFeature::AuditWeight::get()
+	{
+		vw* vw = m_vw->m_vw;
+
+		return GD::trunc_weight(Weight, (float)vw->sd->gravity) * (float)vw->sd->contraction;
+	}
 
     bool VowpalWabbitFeature::Equals(Object^ o)
     {
@@ -389,12 +458,12 @@ namespace VW
 
     int VowpalWabbitFeature::GetHashCode()
     {
-      return (int)m_x + m_weight_index;
+      return (int)(m_x + m_weight_index);
     }
 
 
-    VowpalWabbitNamespace::VowpalWabbitNamespace(namespace_index ns, features* features)
-      : m_ns(ns), m_features(features)
+    VowpalWabbitNamespace::VowpalWabbitNamespace(VowpalWabbitExample^ example, namespace_index ns, features* features)
+      : m_example(example), m_ns(ns), m_features(features)
     { }
 
     VowpalWabbitNamespace::~VowpalWabbitNamespace()
@@ -412,11 +481,11 @@ namespace VW
 
     IEnumerator<VowpalWabbitFeature^>^ VowpalWabbitNamespace::GetEnumerator()
     {
-      return gcnew FeatureEnumerator(m_features);
+      return gcnew FeatureEnumerator(m_example, m_features);
     }
 
-    VowpalWabbitNamespace::FeatureEnumerator::FeatureEnumerator(features* features)
-      : m_features(features), m_iterator(nullptr)
+    VowpalWabbitNamespace::FeatureEnumerator::FeatureEnumerator(VowpalWabbitExample^ example, features* features)
+      : m_example(example), m_features(features), m_iterator(nullptr)
     {
       m_end = new Holder<features::iterator>{ features->end() };
     }
@@ -453,6 +522,6 @@ namespace VW
       if (!m_iterator || m_iterator->value == m_end->value)
         throw gcnew InvalidOperationException();
 
-      return gcnew VowpalWabbitFeature(m_iterator->value.value(), m_iterator->value.index());
+      return gcnew VowpalWabbitFeature(m_example, m_iterator->value.value(), m_iterator->value.index());
     }
 }

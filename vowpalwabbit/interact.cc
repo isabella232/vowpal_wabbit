@@ -7,7 +7,7 @@ license as described in the file LICENSE.
 #include <float.h>
 #include "reductions.h"
 #include "v_array.h"
-
+using namespace std;
 struct interact
 { unsigned char n1, n2;  //namespaces to interact
   features feat_store;
@@ -39,7 +39,7 @@ void multiply(features& f_dest, features& f_src2, interact& in)
 { f_dest.erase();
   features& f_src1 = in.feat_store;
   vw* all = in.all;
-  uint64_t weight_mask = all->reg.weight_mask;
+  uint64_t weight_mask = all->weights.mask();
   uint64_t base_id1 = f_src1.indicies[0] & weight_mask;
   uint64_t base_id2 = f_src2.indicies[0] & weight_mask;
 
