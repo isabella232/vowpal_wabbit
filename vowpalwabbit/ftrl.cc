@@ -50,7 +50,7 @@ inline void predict_with_confidence(uncertainty& d, const float fx, float& fw)
   d.pred += w[W_XT] * fx;
   float sqrtf_ng2 = sqrtf(w[W_G2]);
   float uncertain = ( (d.b.data.ftrl_beta+sqrtf_ng2)/d.b.data.ftrl_alpha +d.b.data.l2_lambda);
-  d.score += (1/uncertain)*sign(fx);
+  d.score += (1/uncertain)*abs(fx);
 }
 
 float sensitivity(ftrl& b, base_learner& base, example& ec)
